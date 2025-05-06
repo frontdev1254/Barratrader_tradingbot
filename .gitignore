@@ -1,0 +1,18 @@
+# Node modules
+node_modules/
+
+# Environment variables
+.env
+
+# Google credentials & OAuth token
+client_secret.json
+token.json
+
+# Logs and temporary files
+*.log
+logs/
+temp_*
+
+# IDE and operating system files
+.vscode/
+.DS_Store
