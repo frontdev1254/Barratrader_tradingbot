@@ -226,7 +226,8 @@ async function monitorPrice(trade, auth) {
   const sheets = google.sheets({ version: 'v4', auth });
   const { Ativo, Posicao, Entrada, Alavancagem, Stop, Alvo1, Alvo2, rowNumber } = trade;
   const isLong = Posicao === 'long';
-  const url    = `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${Ativo}`;
+  const base = process.env.BYBIT_BASE_URL;
+  const url  = `${base}${Ativo}`;
 
   while (true) {
     let resp;
