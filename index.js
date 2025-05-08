@@ -1,6 +1,5 @@
 require('dotenv').config();
 
-// Validation of required environment variables
 const requiredEnvs = ['SPREADSHEET_ID', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID', 'TELEGRAM_TOPIC_ID'];
 for (const k of requiredEnvs) {
   if (!process.env[k]) {
@@ -13,22 +12,18 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const path = require('path');
+const os = require('os');
 
-// ——————————————————————————————————————————————
-// CONFIGURATIONS
-// ——————————————————————————————————————————————
-const CREDENTIALS_PATH    = process.env.GOOGLE_CREDENTIALS_PATH || './client_secret.json';
-const TOKEN_PATH          = 'token.json';
-const SPREADSHEET_ID      = process.env.SPREADSHEET_ID;
-const TELEGRAM_TOKEN      = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID    = parseInt(process.env.TELEGRAM_CHAT_ID, 10);
-const TELEGRAM_TOPIC_ID   = parseInt(process.env.TELEGRAM_TOPIC_ID, 10);
-const CONCURRENCY_LIMIT   = 60;
-const POLL_INTERVAL_MS    = 5000;
+const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './client_secret.json';
+const TOKEN_PATH = 'token.json';
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = parseInt(process.env.TELEGRAM_CHAT_ID, 10);
+const TELEGRAM_TOPIC_ID = parseInt(process.env.TELEGRAM_TOPIC_ID, 10);
+const CONCURRENCY_LIMIT = 60;
+const POLL_INTERVAL_MS = 5000;
 
-// ——————————————————————————————————————————————
-// GOOGLE API CREDENTIALS
-// ——————————————————————————————————————————————
 let credentials;
 try {
   credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
@@ -39,47 +34,28 @@ try {
 const { client_id, client_secret, redirect_uris } = credentials.installed || credentials.web;
 const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
 
-// ——————————————————————————————————————————————
-// Bot State
-// ——————————————————————————————————————————————
 const processedTrades = new Set();
-const activeMonitors  = new Map();
-let activeTasks       = 0;
+const activeMonitors = new Map();
+let activeTasks = 0;
 
-// ——————————————————————————————————————————————
-// Telegram Instance
-// ——————————————————————————————————————————————
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-// Reconnect polling in case of an error
 bot.on('polling_error', async (err) => {
   console.error('Polling error – reiniciando em 5s', err.code || err.message);
   await new Promise(r => setTimeout(r, 5000));
   bot.startPolling();
 });
 
-// ——————————————————————————————————————————————
-// HELPERS
-// ——————————————————————————————————————————————
 function generateTradeId(row, rowNumber) {
   return `${row[0]}::${row[1]}::${row[2]}::${rowNumber}`;
 }
 
 function escapeHtml(text) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function parseRow(row, rowNumber) {
-  const [
-    Timestamp, Trader, Ativo, Categoria, PosicaoRaw,
-    EntradaRaw, AlavRaw, StopRaw, PercentStopRaw,
-    Alvo1Raw, ResAlvo1Raw, Alvo2Raw, ResAlvo2Raw,
-    Imagem, Analise, ResFinalRaw, Status, TipoResFinal
-  ] = row;
-
+  const [Timestamp, Trader, Ativo, Categoria, PosicaoRaw, EntradaRaw, AlavRaw, StopRaw, PercentStopRaw, Alvo1Raw, ResAlvo1Raw, Alvo2Raw, ResAlvo2Raw, Imagem, Analise, ResFinalRaw, Status, TipoResFinal] = row;
   return {
     rowNumber,
     Timestamp,
@@ -110,14 +86,9 @@ function getFileIdFromUrl(url) {
 
 function getDirectDriveUrl(driveUrl) {
   const fileId = getFileIdFromUrl(driveUrl);
-  return fileId
-    ? `https://drive.google.com/uc?export=download&id=${fileId}`
-    : driveUrl;
+  return fileId ? `https://drive.google.com/uc?export=download&id=${fileId}` : driveUrl;
 }
 
-// ——————————————————————————————————————————————
-// GOOGLE AUTHORIZATION
-// ——————————————————————————————————————————————
 function authorize(callback) {
   fs.readFile(TOKEN_PATH, (err, token) => {
     if (err) return getAccessToken(callback);
@@ -147,18 +118,14 @@ function getAccessToken(callback) {
   });
 }
 
-// ——————————————————————————————————————————————
-// INITIAL SCAN
-// ——————————————————————————————————————————————
 async function scanAndMonitorAllTrades(auth) {
   const sheets = google.sheets({ version: 'v4', auth });
-  const res    = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'A2:R' });
-  const rows   = res.data.values || [];
-
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'A2:R' });
+  const rows = res.data.values || [];
   for (let i = 0; i < rows.length; i++) {
-    const raw    = rows[i];
+    const raw = rows[i];
     const rowNum = i + 2;
-    const id     = generateTradeId(raw, rowNum);
+    const id = generateTradeId(raw, rowNum);
     if (processedTrades.has(id)) continue;
     const trade = parseRow(raw, rowNum);
     if (!trade.Status) {
@@ -170,19 +137,16 @@ async function scanAndMonitorAllTrades(auth) {
   }
 }
 
-// ——————————————————————————————————————————————
-// NEW ENTRIES CHECK
-// ——————————————————————————————————————————————
 async function checkNewEntries(auth) {
   const sheets = google.sheets({ version: 'v4', auth });
   while (true) {
     try {
-      const res  = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'A2:R' });
+      const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'A2:R' });
       const rows = res.data.values || [];
       if (rows.length) {
-        const raw    = rows[rows.length - 1];
+        const raw = rows[rows.length - 1];
         const rowNum = rows.length + 1;
-        const id     = generateTradeId(raw, rowNum);
+        const id = generateTradeId(raw, rowNum);
         if (!processedTrades.has(id)) {
           const trade = parseRow(raw, rowNum);
           if (!trade.Status) {
@@ -200,9 +164,6 @@ async function checkNewEntries(auth) {
   }
 }
 
-// ——————————————————————————————————————————————
-// START MONITORING
-// ——————————————————————————————————————————————
 function startMonitor(trade, auth) {
   const key = trade.rowNumber;
   if (activeMonitors.has(key)) return;
@@ -219,15 +180,11 @@ function startMonitor(trade, auth) {
   })();
 }
 
-// ——————————————————————————————————————————————
-// MONITOR PRICE AND TRIGGERS
-// ——————————————————————————————————————————————
 async function monitorPrice(trade, auth) {
   const sheets = google.sheets({ version: 'v4', auth });
   const { Ativo, Posicao, Entrada, Alavancagem, Stop, Alvo1, Alvo2, rowNumber } = trade;
   const isLong = Posicao === 'long';
-  const url    = `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${Ativo}`;
-
+  const url = `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${Ativo}`;
   while (true) {
     let resp;
     try {
@@ -237,65 +194,38 @@ async function monitorPrice(trade, auth) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       continue;
     }
-
     const payload = resp.data;
     if (!payload.result?.list?.length) {
       console.error(`[Monitor ${Ativo}] Resposta inesperada da Bybit:`, payload);
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
       continue;
     }
-
     const price = parseFloat(payload.result.list[0].lastPrice);
-    const pnl   = isLong
-      ? ((price - Entrada) / Entrada) * 100 * Alavancagem
-      : ((Entrada - price) / Entrada) * 100 * Alavancagem;
-
-    const hitStop = isLong
-      ? price <= Stop && trade.ResAlvo1 == null && trade.ResAlvo2 == null
-      : price >= Stop && trade.ResAlvo1 == null && trade.ResAlvo2 == null;
+    const pnl = isLong ? ((price - Entrada) / Entrada) * 100 * Alavancagem : ((Entrada - price) / Entrada) * 100 * Alavancagem;
+    const hitStop = isLong ? price <= Stop && trade.ResAlvo1 == null && trade.ResAlvo2 == null : price >= Stop && trade.ResAlvo1 == null && trade.ResAlvo2 == null;
     const hitT1 = isLong ? price >= Alvo1 : price <= Alvo1;
     const hitT2 = Alvo2 != null ? (isLong ? price >= Alvo2 : price <= Alvo2) : false;
-
     if (hitT1 && trade.ResAlvo1 == null) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `K${rowNumber}`,
-        valueInputOption: 'RAW',
-        resource: { values: [[pnl.toFixed(2)]] }
-      });
+      await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `K${rowNumber}`, valueInputOption: 'RAW', resource: { values: [[pnl.toFixed(2)]] } });
       trade.ResAlvo1 = pnl;
       await sendTradeToTelegram({ ...trade, TipoCard: 'update1', ResAlvo1: pnl });
-      if (!Alvo2) {
-        return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
-      }
+      if (!Alvo2) return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
     }
-
     if (hitT2 && trade.ResAlvo2 == null) {
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: SPREADSHEET_ID,
-        range: `M${rowNumber}`,
-        valueInputOption: 'RAW',
-        resource: { values: [[pnl.toFixed(2)]] }
-      });
+      await sheets.spreadsheets.values.update({ spreadsheetId: SPREADSHEET_ID, range: `M${rowNumber}`, valueInputOption: 'RAW', resource: { values: [[pnl.toFixed(2)]] } });
       trade.ResAlvo2 = pnl;
       return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Profit' });
     }
-
     if (hitStop) {
       return await closeTrade({ trade, sheets, finalPnl: pnl, tipoFinal: 'Stop Loss' });
     }
-
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
   }
 }
 
-// ——————————————————————————————————————————————
-// CLOSE TRADE FUNCTION
-// ——————————————————————————————————————————————
 async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
   const { rowNumber, Alvo2 } = trade;
   const updates = [];
-
   if (tipoFinal === 'Stop Loss') {
     updates.push({ range: `I${rowNumber}`, values: [[finalPnl.toFixed(0)]] });
   }
@@ -305,33 +235,17 @@ async function closeTrade({ trade, sheets, finalPnl, tipoFinal }) {
       updates.push({ range: `M${rowNumber}`, values: [[(trade.ResAlvo2 != null ? trade.ResAlvo2 : finalPnl).toFixed(2)]] });
     }
   }
-
   updates.push({ range: `P${rowNumber}`, values: [[finalPnl.toFixed(2)]] });
   updates.push({ range: `Q${rowNumber}`, values: [['Encerrado']] });
   updates.push({ range: `R${rowNumber}`, values: [[tipoFinal]] });
-
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
-    resource: { valueInputOption: 'RAW', data: updates }
-  });
-
+  await sheets.spreadsheets.values.batchUpdate({ spreadsheetId: SPREADSHEET_ID, resource: { valueInputOption: 'RAW', data: updates } });
   await sendTradeToTelegram({ ...trade, TipoCard: 'close', finalPnl, tipoFinal });
 }
 
-// ——————————————————————————————————————————————
-// SENDING TRADE CARD TO TELEGRAM (IMAGE WITH CAPTION)
-// ——————————————————————————————————————————————
 async function sendTradeToTelegram(trade) {
-  const {
-    Imagem, Ativo, Categoria, Posicao, Alavancagem,
-    Entrada, Stop, Alvo1, Alvo2,
-    Trader, Timestamp, Analise,
-    TipoCard, ResAlvo1, ResAlvo2, finalPnl, tipoFinal
-  } = trade;
-
-  const chatId  = TELEGRAM_CHAT_ID;
+  const { Imagem, Ativo, Categoria, Posicao, Alavancagem, Entrada, Stop, Alvo1, Alvo2, Trader, Timestamp, Analise, TipoCard, ResAlvo1, ResAlvo2, finalPnl, tipoFinal } = trade;
+  const chatId = TELEGRAM_CHAT_ID;
   const directUrl = getDirectDriveUrl(Imagem);
-
   let header;
   if (TipoCard === 'open') {
     header = '🚨 Novo trade detectado!';
@@ -339,14 +253,11 @@ async function sendTradeToTelegram(trade) {
     header = `🚨 Trade Atualizado – Alvo 1 Atingido (${ResAlvo1.toFixed(2)}%)`;
   } else {
     if (tipoFinal === 'Profit') {
-      header = ResAlvo2 != null
-        ? `🚨 Trade Encerrado! – Alvo 2 Atingido (${ResAlvo2.toFixed(2)}%)`
-        : `🚨 Trade Encerrado! – Alvo 1 Atingido (${finalPnl.toFixed(2)}%)`;
+      header = ResAlvo2 != null ? `🚨 Trade Encerrado! – Alvo 2 Atingido (${ResAlvo2.toFixed(2)}%)` : `🚨 Trade Encerrado! – Alvo 1 Atingido (${finalPnl.toFixed(2)}%)`;
     } else {
       header = `🚨 Trade Encerrado! – Stop Loss (${finalPnl.toFixed(2)}%)`;
     }
   }
-
   const caption = `${header}
 Ativo: ${escapeHtml(Ativo)}
 Categoria: ${escapeHtml(Categoria)}
@@ -358,26 +269,25 @@ Trader: ${escapeHtml(Trader)}
 Data: ${escapeHtml(Timestamp)}
 
 Análise: ${escapeHtml(Analise)}`;
-
   const opts = { caption, parse_mode: 'HTML', message_thread_id: TELEGRAM_TOPIC_ID };
   try {
     await bot.sendPhoto(chatId, directUrl, opts);
   } catch {
-    const resp = await axios.get(directUrl, { responseType: 'arraybuffer' });
-    await bot.sendPhoto(chatId, Buffer.from(resp.data, 'binary'), opts);
+    try {
+      const resp = await axios.get(directUrl, { responseType: 'arraybuffer' });
+      const tempPath = path.join(os.tmpdir(), `trade_${Date.now()}.jpg`);
+      fs.writeFileSync(tempPath, resp.data);
+      await bot.sendPhoto(chatId, fs.createReadStream(tempPath), opts);
+      fs.unlinkSync(tempPath);
+    } catch (err) {
+      console.error('❌ Falha ao enviar imagem mesmo com fallback:', err.message);
+    }
   }
 }
 
-// ——————————————————————————————————————————————
-// START OF THE BOT
-// ——————————————————————————————————————————————
 authorize(async (auth) => {
   try {
-    await bot.sendMessage(
-      TELEGRAM_CHAT_ID,
-      '🤖 Bot de trading iniciado!',
-      { parse_mode: 'HTML', message_thread_id: TELEGRAM_TOPIC_ID }
-    );
+    await bot.sendMessage(TELEGRAM_CHAT_ID, '🤖 Bot de trading iniciado!', { parse_mode: 'HTML', message_thread_id: TELEGRAM_TOPIC_ID });
   } catch (e) {
     console.error('❌ Falha no teste de conexão:', e);
   }
