@@ -4,7 +4,7 @@ const { google } = require('googleapis');
 
 // === Define the required scopes ===
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
-const CREDENTIALS_PATH = 'client_secret_1069778853571-j5q94nc0d74blbvl4b2muirvschajeq7.apps.googleusercontent.com.json'; // Substitua com o nome do seu arquivo
+const CREDENTIALS_PATH = 'client_secret.json'; // Substitua com o nome do seu arquivo
 const TOKEN_PATH = './token.json';
 
 // === Read the client credentials ===

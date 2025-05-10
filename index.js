@@ -1,5 +1,32 @@
 require('dotenv').config();
 
+const { google } = require('googleapis');
+const fs = require('fs');
+const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
+const path = require('path');
+const os = require('os');
+
+const SENT_TRADES_FILE = path.resolve(__dirname, 'sent_trades.json');
+let sentTrades = [];
+
+if (fs.existsSync(SENT_TRADES_FILE)) {
+  try {
+    sentTrades = JSON.parse(fs.readFileSync(SENT_TRADES_FILE, 'utf8'));
+  } catch (err) {
+    console.error('Erro ao carregar sent_trades.json:', err.message);
+    sentTrades = [];
+  }
+}
+
+function saveSentTrades() {
+  // KEEP THE LAST 1000 TRADES FOR SECURE
+  if (sentTrades.length > 1000) {
+    sentTrades = sentTrades.slice(-1000);
+  }
+  fs.writeFileSync(SENT_TRADES_FILE, JSON.stringify(sentTrades, null, 2));
+}
+
 const requiredEnvs = ['SPREADSHEET_ID', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID', 'TELEGRAM_TOPIC_ID'];
 for (const k of requiredEnvs) {
   if (!process.env[k]) {
@@ -7,13 +34,6 @@ for (const k of requiredEnvs) {
     process.exit(1);
   }
 }
-
-const { google } = require('googleapis');
-const fs = require('fs');
-const TelegramBot = require('node-telegram-bot-api');
-const axios = require('axios');
-const path = require('path');
-const os = require('os');
 
 const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS_PATH || './client_secret.json';
 const TOKEN_PATH = 'token.json';
@@ -126,12 +146,14 @@ async function scanAndMonitorAllTrades(auth) {
     const raw = rows[i];
     const rowNum = i + 2;
     const id = generateTradeId(raw, rowNum);
-    if (processedTrades.has(id)) continue;
+    if (processedTrades.has(id) || sentTrades.includes(id)) continue;
     const trade = parseRow(raw, rowNum);
     if (!trade.Status) {
       processedTrades.add(id);
       trade.TipoCard = 'open';
       await sendTradeToTelegram(trade);
+      sentTrades.push(id);
+      saveSentTrades();
       startMonitor(trade, auth);
     }
   }
@@ -147,12 +169,14 @@ async function checkNewEntries(auth) {
         const raw = rows[rows.length - 1];
         const rowNum = rows.length + 1;
         const id = generateTradeId(raw, rowNum);
-        if (!processedTrades.has(id)) {
+        if (!processedTrades.has(id) && !sentTrades.includes(id)) {
           const trade = parseRow(raw, rowNum);
           if (!trade.Status) {
             processedTrades.add(id);
             trade.TipoCard = 'open';
             await sendTradeToTelegram(trade);
+            sentTrades.push(id);
+            saveSentTrades();
             startMonitor(trade, auth);
           }
         }
@@ -286,11 +310,7 @@ Análise: ${escapeHtml(Analise)}`;
 }
 
 authorize(async (auth) => {
-  try {
-    await bot.sendMessage(TELEGRAM_CHAT_ID, '🤖 Bot de trading iniciado!', { parse_mode: 'HTML', message_thread_id: TELEGRAM_TOPIC_ID });
-  } catch (e) {
-    console.error('❌ Falha no teste de conexão:', e);
-  }
+  console.log('✅ [BOT] Inicializado com sucesso. Monitoramento ativo...');
   await scanAndMonitorAllTrades(auth);
   await checkNewEntries(auth);
 });

@@ -5,13 +5,14 @@ node_modules/
 .env
 
 # Google credentials & OAuth token
-client_secret.json
 token.json
+client_secret.json
 
 # Logs and temporary files
 *.log
 logs/
 temp_*
+sent_trades.json
 
 # IDE and operating system files
 .vscode/
