@@ -120,6 +120,7 @@ function authorize(callback) {
 function getAccessToken(callback) {
   const authUrl = oAuth2Client.generateAuthUrl({
     access_type: 'offline',
+    prompt: 'consent',
     scope: [
       'https://www.googleapis.com/auth/spreadsheets',
       'https://www.googleapis.com/auth/drive'
@@ -140,21 +141,31 @@ function getAccessToken(callback) {
 
 async function scanAndMonitorAllTrades(auth) {
   const sheets = google.sheets({ version: 'v4', auth });
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'A2:R' });
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: 'A2:R'
+  });
   const rows = res.data.values || [];
+
   for (let i = 0; i < rows.length; i++) {
     const raw = rows[i];
     const rowNum = i + 2;
     const id = generateTradeId(raw, rowNum);
-    if (processedTrades.has(id) || sentTrades.includes(id)) continue;
+
+    if (processedTrades.has(id)) continue; // ✅ NÃO bloquear com sentTrades aqui
     const trade = parseRow(raw, rowNum);
+
     if (!trade.Status) {
       processedTrades.add(id);
-      trade.TipoCard = 'open';
-      await sendTradeToTelegram(trade);
-      sentTrades.push(id);
-      saveSentTrades();
-      startMonitor(trade, auth);
+
+      if (!sentTrades.includes(id)) {
+        trade.TipoCard = 'open';
+        await sendTradeToTelegram(trade);
+        sentTrades.push(id);
+        saveSentTrades();
+      }
+
+      startMonitor(trade, auth); // ✅ Sempre monitorar
     }
   }
 }
@@ -225,6 +236,7 @@ async function monitorPrice(trade, auth) {
       continue;
     }
     const price = parseFloat(payload.result.list[0].lastPrice);
+    //console.log(`[OK] ${Ativo} | Preço atual: ${price} | Linha: ${rowNumber}`);
     const pnl = isLong ? ((price - Entrada) / Entrada) * 100 * Alavancagem : ((Entrada - price) / Entrada) * 100 * Alavancagem;
     const hitStop = isLong ? price <= Stop && trade.ResAlvo1 == null && trade.ResAlvo2 == null : price >= Stop && trade.ResAlvo1 == null && trade.ResAlvo2 == null;
     const hitT1 = isLong ? price >= Alvo1 : price <= Alvo1;
