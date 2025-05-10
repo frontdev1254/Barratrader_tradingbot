@@ -14,8 +14,8 @@ const oAuth2Client = new google.auth.OAuth2(
 
 // Scopes required for Google Drive and Google Sheets
 const SCOPES = [
-  'https://www.googleapis.com/auth/spreadsheets.readonly', // Read-only permission for Google Sheets
-  'https://www.googleapis.com/auth/drive.readonly' // Read and write permission for Google Drive
+  'https://www.googleapis.com/auth/spreadsheets', // Read-only permission for Google Sheets
+  'https://www.googleapis.com/auth/drive' // Read and write permission for Google Drive
 ];
 
 const authUrl = oAuth2Client.generateAuthUrl({
